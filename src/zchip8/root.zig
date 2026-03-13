@@ -4,7 +4,7 @@ const STACK_MAX = 16;
 
 const FONT_BYTES = [_]u8{
     // "0"
-    0xF0, 0x90, 0x90, 0x90, 0x90,
+    0xF0, 0x90, 0x90, 0x90, 0xF0,
     // "1"
     0x20, 0x60, 0x20, 0x20, 0x70,
     // "2"
@@ -41,7 +41,7 @@ pub const zchip8 = struct {
     allocator: std.mem.Allocator,
     memory: [4096]u8,
     registers: [16]u8,
-    stack: std.ArrayList(u16),
+    stack: std.ArrayListUnmanaged(u16),
     display: [2048]u1,
     key_states: [16]bool,
     key_released: [16]bool,
@@ -54,14 +54,14 @@ pub const zchip8 = struct {
 
     pub fn init(allocator: std.mem.Allocator, rom_data: []const u8) !zchip8 {
         var mem: [4096]u8 = std.mem.zeroes([4096]u8);
-        @memcpy(mem[0x000..0x050], &FONT_BYTES);
+        @memcpy(mem[0x000..FONT_BYTES.len], &FONT_BYTES);
         @memcpy(mem[0x200 .. 0x200 + rom_data.len], rom_data);
 
         return .{
             .allocator = allocator,
             .memory = mem,
             .registers = std.mem.zeroes([16]u8),
-            .stack = .empty,
+            .stack = try std.ArrayListUnmanaged(u16).initCapacity(allocator, 16),
             .display = std.mem.zeroes([2048]u1),
             .key_states = std.mem.zeroes([16]bool),
             .key_released = std.mem.zeroes([16]bool),
@@ -72,6 +72,11 @@ pub const zchip8 = struct {
             .sound_timer = 0,
             .do_increment = true,
         };
+    }
+
+    pub fn deinit(self: *zchip8) void {
+        self.stack.deinit(self.allocator);
+        self.dump();
     }
 
     pub fn update_timers(self: *zchip8) void {
@@ -99,6 +104,7 @@ pub const zchip8 = struct {
                     0x00EE => {
                         const pc = self.pop().?;
                         self.pc = pc;
+                        self.do_increment = false;
                     },
 
                     else => {},
@@ -108,8 +114,9 @@ pub const zchip8 = struct {
             // subroutine
             0x2 => {
                 const nnn = self.getNNN(instruction);
-                try self.push(self.pc);
+                try self.push(self.pc + 2);
                 self.pc = nnn;
+                self.do_increment = false;
             },
 
             // jump
@@ -211,8 +218,8 @@ pub const zchip8 = struct {
                     },
                     // font char
                     0x29 => {
-                        const addr = self.registers[self.getX(instruction)];
-                        self.idx = addr * 5;
+                        const addr = self.registers[self.getX(instruction)] & 0x0F;
+                        self.idx = @as(u16, addr) * 5;
                     },
                     // binary encoded decimal conversion
                     0x33 => {
@@ -221,16 +228,14 @@ pub const zchip8 = struct {
                         self.memory[self.idx + 1] = (x / 10) % 10;
                         self.memory[self.idx + 2] = x % 10;
                     },
-                    // store memory
                     0x55 => {
-                        const x = self.getX(instruction);
+                        const x = @min(self.getX(instruction), 14); // Never touch VF
                         for (0..x + 1) |i| {
                             self.memory[self.idx + i] = self.registers[i];
                         }
                     },
-                    // load memory
                     0x65 => {
-                        const x = self.getX(instruction);
+                        const x = @min(self.getX(instruction), 14); // Never touch VF
                         for (0..x + 1) |i| {
                             self.registers[i] = self.memory[self.idx + i];
                         }
@@ -245,65 +250,55 @@ pub const zchip8 = struct {
                 const y = self.getY(instruction);
                 const mode = self.getMode(instruction);
 
-                const a = self.registers[x];
-                const b = self.registers[y];
+                std.debug.print("X of instructions: {d}, 0x{x}\n", .{ x, x });
+                std.debug.print("Y of instructions: {d}, 0x{x}\n", .{ y, y });
+                std.debug.print("Opcode 0x8xy{x}: Vx={d}, Vy={d}, VF={d}\n", .{ mode, self.registers[x], self.registers[y], self.registers[0xF] });
+
+                const vx = self.registers[x];
+                const vy = self.registers[y];
 
                 switch (mode) {
-                    0x0 => self.registers[x] = b,
-                    0x1 => self.registers[x] = a | b,
-                    0x2 => self.registers[x] = a & b,
-                    0x3 => self.registers[x] = a ^ b,
-                    0x4 => {
-                        const result = a +% b;
-                        if (a > std.math.maxInt(u8) - b) {
-                            self.registers[0xF] = 1;
-                        } else {
-                            self.registers[0xF] = 0;
-                        }
-
+                    0x0 => {
+                        std.debug.print("8XY0 BEFORE: x={d} vx={d} vy={d} VF={d}", .{ x, vx, vy, self.registers[0xf] });
+                        self.registers[x] = vy;
+                        std.debug.print("8XY0 AFTER: x={d} vx={d} vy={d} VF={d}", .{ x, vx, vy, self.registers[0xf] });
+                        self.registers[0xF] = 0;
+                    },
+                    0x1 => {
+                        self.registers[x] = vx | vy;
+                        self.registers[0xF] = 0;
+                    },
+                    0x2 => {
+                        self.registers[x] = vx & vy;
+                        self.registers[0xF] = 0;
+                    },
+                    0x3 => {
+                        self.registers[x] = vx ^ vy;
+                        self.registers[0xF] = 0;
+                    },
+                    0x4 => { // add
+                        const sum = @as(u16, vx) + @as(u16, vy);
+                        self.registers[x] = @truncate(sum);
+                        self.registers[0xF] = if (sum > 0xFF) 1 else 0;
+                    },
+                    0x5 => { // sub
+                        self.registers[x] = vx -% vy;
+                        self.registers[0xF] = if (vx >= vy) 1 else 0;
+                    },
+                    0x6 => { // shift right - MODERN behavior (Vx = Vy >> 1)
+                        const lsb = vy & 1;
+                        self.registers[x] = vy >> 1;
+                        self.registers[0xF] = lsb;
+                    },
+                    0xE => { // shift left
+                        const msb = (vy >> 7) & 1;
+                        const result = vy << 1;
                         self.registers[x] = result;
+                        self.registers[0xF] = msb;
                     },
-                    0x5 => {
-                        const result = a -% b;
-                        if (a > b) {
-                            self.registers[0xF] = 1;
-                        } else {
-                            self.registers[0xF] = 0;
-                        }
-
-                        self.registers[x] = result;
-                    },
-                    0x7 => {
-                        const result = b -% a;
-                        if (b > a) {
-                            self.registers[0xF] = 1;
-                        } else {
-                            self.registers[0xF] = 0;
-                        }
-
-                        self.registers[x] = result;
-                    },
-                    // shift right
-                    0x6 => {
-                        const falls_off = (self.registers[x] & 1) == 1;
-                        if (falls_off) {
-                            self.registers[0xF] = 1;
-                        } else {
-                            self.registers[0xF] = 0;
-                        }
-
-                        self.registers[x] >>= 1;
-                    },
-                    // shift left
-                    0xE => {
-                        const falls_off = (self.registers[x] & 0x80) == 0x80;
-                        if (falls_off) {
-                            self.registers[0xF] = 1;
-                        } else {
-                            self.registers[0xF] = 0;
-                        }
-
-                        self.registers[x] <<= 1;
+                    0x7 => { // sub but y - x
+                        self.registers[x] = vy -% vx;
+                        self.registers[0xF] = if (vy >= vx) 1 else 0;
                     },
                     else => {},
                 }
@@ -311,29 +306,27 @@ pub const zchip8 = struct {
 
             // display
             0xD => {
-                const x = self.registers[self.getX(instruction)] & 63;
-                const y = self.registers[self.getY(instruction)] & 31;
+                const n = self.getMode(instruction);
+                const vx = self.registers[self.getX(instruction)];
+                const vy = self.registers[self.getY(instruction)];
+
                 self.registers[0xF] = 0;
 
-                // last N
-                const n = self.getMode(instruction);
-                for (0..n) |idx| {
-                    const n_byte = self.memory[self.idx + idx];
-                    for (0..8) |b| {
-                        const px = x + (@as(u3, @intCast(b)));
-                        const py = y + idx;
+                for (0..n) |row_idx| {
+                    const py = (vy + row_idx) % 32;
+                    const sprite_byte = self.memory[self.idx + row_idx];
 
-                        if (px >= 64 or py >= 32) continue;
+                    for (0..8) |col_idx| {
+                        const px = (vx + col_idx) % 64;
 
-                        const sp_pixel = (n_byte >> 7 - @as(u3, @intCast(b))) & 1;
-                        const sc_pixel = self.display[px + py * 64];
-
-                        if (sp_pixel == 1) {
-                            if (sc_pixel == 1) {
+                        const bit = (sprite_byte >> @as(u3, @intCast(7 - col_idx))) & 1;
+                        if (bit == 1) {
+                            const pixel_index = px + (py * 64);
+                            if (self.display[pixel_index] == 1) {
                                 self.registers[0xF] = 1;
-                                self.display[px + py * 64] = 0;
+                                self.display[pixel_index] = 0;
                             } else {
-                                self.display[px + py * 64] = 1;
+                                self.display[pixel_index] = 1;
                             }
                         }
                     }

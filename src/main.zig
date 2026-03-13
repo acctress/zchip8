@@ -25,8 +25,9 @@ pub fn main() !void {
     );
     defer window.deinit();
 
-    const rom = try std.fs.cwd().readFileAlloc(allocator, "tests/3-corax+.ch8", 4096);
+    const rom = try std.fs.cwd().readFileAlloc(allocator, "tests/4-flags.ch8", 4096);
     var cpu: zchip8 = try .init(allocator, rom);
+    defer cpu.deinit();
 
     cpu.dump();
 
@@ -37,9 +38,14 @@ pub fn main() !void {
         _ = dt;
 
         cpu.update_timers();
-        try cpu.step();
+        for (0..10) |_| {
+            try cpu.step();
+        }
 
         const surface = try window.getSurface();
+
+        std.debug.print("in render loop: {any}\n", .{cpu.display[0..8]});
+
         try surface.fillRect(null, surface.mapRgb(0, 0, 0));
 
         for (cpu.display, 0..) |pixel, idx| {
