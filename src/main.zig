@@ -2,7 +2,7 @@ const std = @import("std");
 const sdl3 = @import("sdl3");
 const zchip8 = @import("zchip8").zchip8;
 
-const SCALE = 10;
+const SCALE = 15;
 const FPS = 60;
 const SCREEN_WIDTH = 64 * SCALE;
 const SCREEN_HEIGHT = 32 * SCALE;
@@ -26,7 +26,7 @@ pub fn main() !void {
     );
     defer window.deinit();
 
-    const rom = try std.fs.cwd().readFileAlloc(allocator, "tests/Puzzle.ch8", 4096);
+    const rom = try std.fs.cwd().readFileAlloc(allocator, "tests/tetris.ch8", 4096);
     var cpu: zchip8 = try .init(allocator, rom);
     defer cpu.deinit();
 
