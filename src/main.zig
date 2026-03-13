@@ -2,9 +2,10 @@ const std = @import("std");
 const sdl3 = @import("sdl3");
 const zchip8 = @import("zchip8").zchip8;
 
+const SCALE = 10;
 const FPS = 60;
-const SCREEN_WIDTH = 64 * 10;
-const SCREEN_HEIGHT = 32 * 10;
+const SCREEN_WIDTH = 64 * SCALE;
+const SCREEN_HEIGHT = 32 * SCALE;
 
 pub fn main() !void {
     defer sdl3.shutdown();
@@ -25,7 +26,7 @@ pub fn main() !void {
     );
     defer window.deinit();
 
-    const rom = try std.fs.cwd().readFileAlloc(allocator, "tests/Soccer.ch8", 4096);
+    const rom = try std.fs.cwd().readFileAlloc(allocator, "tests/Puzzle.ch8", 4096);
     var cpu: zchip8 = try .init(allocator, rom);
     defer cpu.deinit();
 
@@ -44,16 +45,16 @@ pub fn main() !void {
 
         const surface = try window.getSurface();
 
-        try surface.fillRect(null, surface.mapRgb(0, 0, 0));
+        try surface.fillRect(null, surface.mapRgb(30, 25, 45));
 
         for (cpu.display, 0..) |pixel, idx| {
-            const x: i32 = @mod(@as(i32, @intCast(idx)), 64) * 10;
-            const y: i32 = @divTrunc(@as(i32, @intCast(idx)), 64) * 10;
+            const x: i32 = @mod(@as(i32, @intCast(idx)), 64) * SCALE;
+            const y: i32 = @divTrunc(@as(i32, @intCast(idx)), 64) * SCALE;
 
             if (pixel == 1) {
                 try surface.fillRect(
-                    sdl3.rect.IRect{ .x = x, .y = y, .w = 10, .h = 10 },
-                    surface.mapRgb(255, 255, 255),
+                    sdl3.rect.IRect{ .x = x, .y = y, .w = SCALE, .h = SCALE },
+                    surface.mapRgb(105, 90, 150),
                 );
             }
         }
