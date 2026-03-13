@@ -250,18 +250,12 @@ pub const zchip8 = struct {
                 const y = self.getY(instruction);
                 const mode = self.getMode(instruction);
 
-                std.debug.print("X of instructions: {d}, 0x{x}\n", .{ x, x });
-                std.debug.print("Y of instructions: {d}, 0x{x}\n", .{ y, y });
-                std.debug.print("Opcode 0x8xy{x}: Vx={d}, Vy={d}, VF={d}\n", .{ mode, self.registers[x], self.registers[y], self.registers[0xF] });
-
                 const vx = self.registers[x];
                 const vy = self.registers[y];
 
                 switch (mode) {
                     0x0 => {
-                        std.debug.print("8XY0 BEFORE: x={d} vx={d} vy={d} VF={d}", .{ x, vx, vy, self.registers[0xf] });
                         self.registers[x] = vy;
-                        std.debug.print("8XY0 AFTER: x={d} vx={d} vy={d} VF={d}", .{ x, vx, vy, self.registers[0xf] });
                         self.registers[0xF] = 0;
                     },
                     0x1 => {
