@@ -25,7 +25,7 @@ pub fn main() !void {
     );
     defer window.deinit();
 
-    const rom = try std.fs.cwd().readFileAlloc(allocator, "tests/3-corax+.ch8", 4096);
+    const rom = try std.fs.cwd().readFileAlloc(allocator, "tests/Soccer.ch8", 4096);
     var cpu: zchip8 = try .init(allocator, rom);
     defer cpu.deinit();
 
