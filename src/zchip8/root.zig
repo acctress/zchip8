@@ -51,6 +51,8 @@ pub const zchip8 = struct {
     delay_timer: u8,
     sound_timer: u8,
     do_increment: bool,
+    waiting_for_key: bool,
+    waiting_for_key_reg: u8,
 
     pub fn init(allocator: std.mem.Allocator, rom_data: []const u8) !zchip8 {
         var mem: [4096]u8 = std.mem.zeroes([4096]u8);
@@ -71,6 +73,8 @@ pub const zchip8 = struct {
             .delay_timer = 0,
             .sound_timer = 0,
             .do_increment = true,
+            .waiting_for_key = false,
+            .waiting_for_key_reg = 0,
         };
     }
 
@@ -144,6 +148,13 @@ pub const zchip8 = struct {
             // set index
             0xA => self.idx = self.getNNN(instruction),
 
+            // jump with offset
+            0xB => {
+                const nnn = self.getNNN(instruction);
+                self.pc = nnn + self.registers[0];
+                self.do_increment = false;
+            },
+
             // random
             0xC => {
                 const x = self.getX(instruction);
@@ -187,6 +198,7 @@ pub const zchip8 = struct {
 
                     0xA1 => {
                         const x = self.registers[self.getX(instruction)];
+                        // std.debug.print("KEY CHECK A1: key={d} state={}\n", .{ x, self.key_states[x] });
                         if (self.key_states[x] == false) self.pc += 2;
                     },
 
@@ -205,15 +217,22 @@ pub const zchip8 = struct {
                     0x1E => self.idx += self.registers[self.getX(instruction)],
                     // get key
                     0x0A => {
-                        for (self.key_released, 0..) |key, idx| {
-                            if (key) {
-                                self.registers[self.getX(instruction)] = @as(u8, @intCast(idx));
-                                self.key_released[idx] = false;
-
-                                break;
-                            }
-                        } else {
+                        if (!self.waiting_for_key) {
+                            self.key_released = std.mem.zeroes([16]bool);
+                            self.waiting_for_key = true;
+                            self.waiting_for_key_reg = self.getX(instruction);
                             self.pc -= 2;
+                        } else {
+                            for (self.key_released, 0..) |key, idx| {
+                                if (key) {
+                                    self.registers[self.waiting_for_key_reg] = @as(u8, @intCast(idx));
+                                    self.key_released[idx] = false;
+                                    self.waiting_for_key = false;
+                                    break;
+                                }
+                            } else {
+                                self.pc -= 2;
+                            }
                         }
                     },
                     // font char
@@ -229,16 +248,18 @@ pub const zchip8 = struct {
                         self.memory[self.idx + 2] = x % 10;
                     },
                     0x55 => {
-                        const x = @min(self.getX(instruction), 14); // Never touch VF
+                        const x = self.getX(instruction);
                         for (0..x + 1) |i| {
                             self.memory[self.idx + i] = self.registers[i];
                         }
+                        self.idx += x + 1;
                     },
                     0x65 => {
-                        const x = @min(self.getX(instruction), 14); // Never touch VF
+                        const x = self.getX(instruction);
                         for (0..x + 1) |i| {
                             self.registers[i] = self.memory[self.idx + i];
                         }
+                        self.idx += x + 1;
                     },
                     else => {},
                 }
@@ -301,17 +322,20 @@ pub const zchip8 = struct {
             // display
             0xD => {
                 const n = self.getMode(instruction);
-                const vx = self.registers[self.getX(instruction)];
-                const vy = self.registers[self.getY(instruction)];
+                const vx = @as(usize, self.registers[self.getX(instruction)]) % 64;
+                const vy = @as(usize, self.registers[self.getY(instruction)]) % 32;
 
                 self.registers[0xF] = 0;
 
                 for (0..n) |row_idx| {
-                    const py = (vy + row_idx) % 32;
+                    const py = vy + row_idx;
+                    if (py >= 32) continue;
+
                     const sprite_byte = self.memory[self.idx + row_idx];
 
                     for (0..8) |col_idx| {
-                        const px = (vx + col_idx) % 64;
+                        const px = vx + col_idx;
+                        if (px >= 64) continue;
 
                         const bit = (sprite_byte >> @as(u3, @intCast(7 - col_idx))) & 1;
                         if (bit == 1) {
@@ -327,7 +351,9 @@ pub const zchip8 = struct {
                 }
             },
 
-            else => {},
+            else => {
+                std.debug.print("UNHANDLED OPCODE: 0x{x:0>4} at PC=0x{x}\n", .{ instruction, self.pc });
+            },
         }
 
         if (self.do_increment) self.pc += 2;
