@@ -25,8 +25,10 @@ pub fn main() !void {
     );
     defer window.deinit();
 
-    const rom = try std.fs.cwd().readFileAlloc(allocator, "tests/1-chip8-logo.ch8", 4096);
+    const rom = try std.fs.cwd().readFileAlloc(allocator, "tests/3-corax+.ch8", 4096);
     var cpu: zchip8 = try .init(allocator, rom);
+
+    cpu.dump();
 
     var fps_capper = sdl3.extras.FramerateCapper(f32){ .mode = .{ .limited = FPS } };
     var quit = false;

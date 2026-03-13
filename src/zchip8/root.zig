@@ -130,7 +130,8 @@ pub const zchip8 = struct {
             0x7 => {
                 const x = self.getX(instruction);
                 const nn = self.getNN(instruction);
-                self.registers[x] += nn;
+                const result = self.registers[x] +% nn;
+                self.registers[x] = result;
             },
 
             // set index
@@ -346,8 +347,8 @@ pub const zchip8 = struct {
     }
 
     pub fn dump(self: *zchip8) void {
-        std.debug.print("dumped memory from 0x200 to 0x300:\n", .{});
-        for (self.memory[0x200..0x300]) |b| {
+        std.debug.print("dumped memory from 0x200 to 0xFFF:\n", .{});
+        for (self.memory[0x200..0xFFF]) |b| {
             std.debug.print("0x{x}, ", .{b});
         }
         std.debug.print("\n\n", .{});
